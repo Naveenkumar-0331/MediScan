@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: mediscan-ai
+
+  datasource:
+    url: jdbc:mysql://localhost:3307/mediscan_db
+    username: mediscan_user
+    password: mediscan_pass_123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    open-in-view: false
+    properties:
+      hibernate:
+        # MySQL8Dialect was removed in Hibernate 6 — use MySQLDialect instead
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+  data:
+    mongodb:
+      uri: mongodb://mongo_admin:mongo_secret_123@localhost:27017/mediscan_docs?authSource=admin
+      database: mediscan_docs
+      auto-index-creation: false
+    redis:
+      host: localhost
+      port: 6379
+      password: redis_secret_123
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 15MB
+
+server:
+  port: 8080
+
+app:
+  jwt:
+    secret: mediscan-super-secret-jwt-key-2024-vit-vellore-project
+    expiration-ms: 3600000
+
+logging:
+  level:
+    com.mediscan: DEBUG
+    org.springframework.security: INFO
+    org.springframework.data.mongodb: WARN

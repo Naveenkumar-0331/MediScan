@@ -1,0 +1,261 @@
+version: "3.9"
+
+# ============================================================
+#  MediScan AI — Local Development Stack
+#  Services: MySQL · MongoDB · Redis · MinIO · Qdrant
+#  Run:  docker-compose up -d
+#  Stop: docker-compose down
+#  Nuke: docker-compose down -v   (removes all data volumes)
+# ============================================================
+
+networks:
+  mediscan-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  mongo_data:
+  redis_data:
+  minio_data:
+  qdrant_data:
+
+services:
+
+  # ----------------------------------------------------------
+  # MySQL 8 — structured data
+  # Stores: users, roles, reports metadata, audit_logs
+  # Port: 3306 (host) → 3306 (container)
+  # ----------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: mediscan-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_123
+      MYSQL_DATABASE: mediscan_db
+      MYSQL_USER: mediscan_user
+      MYSQL_PASSWORD: mediscan_pass_123
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Place your schema SQL files in ./init/mysql/ — auto-runs on first start
+      - ./init/mysql:/docker-entrypoint-initdb.d
+    networks:
+      - mediscan-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "mediscan_user", "-pmediscan_pass_123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+
+  # ----------------------------------------------------------
+  # MongoDB 7 — unstructured / document data
+  # Stores: extracted report text, AI summaries, audit events
+  # Port: 27017 (host) → 27017 (container)
+  # ----------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: mediscan-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo_admin
+      MONGO_INITDB_ROOT_PASSWORD: mongo_secret_123
+      MONGO_INITDB_DATABASE: mediscan_docs
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      # Place MongoDB init scripts in ./init/mongo/
+      - ./init/mongo:/docker-entrypoint-initdb.d
+    networks:
+      - mediscan-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ----------------------------------------------------------
+  # Redis 7 — caching + rate limiting + session store
+  # Stores: AI summary cache, rate limit counters, JWT denylist
+  # Port: 6379 (host) → 6379 (container)
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: mediscan-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass redis_secret_123
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mediscan-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_secret_123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # MinIO — S3-compatible local object storage
+  # Stores: raw uploaded PDF and image files
+  # API Port:     9000 (host) → 9000 (container)
+  # Console Port: 9001 (host) → 9001 (container)
+  # Console URL:  http://localhost:9001
+  # Login:        minioadmin / minioadmin123
+  # ----------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: mediscan-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - mediscan-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # MinIO bucket initializer — creates 'reports' bucket on startup
+  minio-init:
+    image: minio/mc:latest
+    container_name: mediscan-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - mediscan-net
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+      mc mb --ignore-existing local/mediscan-reports;
+      mc mb --ignore-existing local/mediscan-thumbnails;
+      mc anonymous set download local/mediscan-thumbnails;
+      echo 'MinIO buckets ready';
+      "
+    restart: "no"
+
+  # ----------------------------------------------------------
+  # Qdrant — vector database for RAG embeddings
+  # Stores: embedded chunks of extracted report text
+  # REST Port:  6333 (host) → 6333 (container)
+  # gRPC Port:  6334 (host) → 6334 (container)
+  # Dashboard:  http://localhost:6333/dashboard
+  # ----------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mediscan-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - mediscan-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # Mongo Express — MongoDB GUI (dev only, remove in prod)
+  # URL: http://localhost:8081
+  # Login: admin / admin123
+  # ----------------------------------------------------------
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mediscan-mongo-express
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: mongo_admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: mongo_secret_123
+      ME_CONFIG_MONGODB_URL: mongodb://mongo_admin:mongo_secret_123@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    ports:
+      - "8081:8081"
+    networks:
+      - mediscan-net
+
+  # ----------------------------------------------------------
+  # phpMyAdmin — MySQL GUI (dev only, remove in prod)
+  # URL: http://localhost:8082
+  # Server: mysql | User: mediscan_user | Pass: mediscan_pass_123
+  # ----------------------------------------------------------
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: mediscan-phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: mediscan_user
+      PMA_PASSWORD: mediscan_pass_123
+      UPLOAD_LIMIT: 50M
+    ports:
+      - "8082:80"
+    networks:
+      - mediscan-net
+
+# ============================================================
+#  QUICK REFERENCE
+# ============================================================
+#
+#  Service         Host URL                       Credentials
+#  --------------- ------------------------------ ---------------------------
+#  MySQL           localhost:3306                 mediscan_user / mediscan_pass_123
+#  MongoDB         localhost:27017                mongo_admin / mongo_secret_123
+#  Redis           localhost:6379                 password: redis_secret_123
+#  MinIO API       localhost:9000                 minioadmin / minioadmin123
+#  MinIO Console   http://localhost:9001           minioadmin / minioadmin123
+#  Qdrant REST     http://localhost:6333/dashboard (no auth in dev)
+#  Mongo Express   http://localhost:8081           admin / admin123
+#  phpMyAdmin      http://localhost:8082           mediscan_user / mediscan_pass_123
+#
+#  Spring Boot application.yml connection strings:
+#
+#  spring.datasource.url=jdbc:mysql://localhost:3306/mediscan_db
+#  spring.data.mongodb.uri=mongodb://mongo_admin:mongo_secret_123@localhost:27017/mediscan_docs?authSource=admin
+#  spring.redis.host=localhost
+#  spring.redis.port=6379
+#  spring.redis.password=redis_secret_123
+#
+#  AWS SDK (MinIO):
+#  endpoint=http://localhost:9000
+#  access-key=minioadmin
+#  secret-key=minioadmin123
+#  bucket=mediscan-reports
+#
+#  Qdrant Python client:
+#  QdrantClient(host="localhost", port=6333)
+# ============================================================
