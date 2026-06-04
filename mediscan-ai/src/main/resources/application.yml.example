@@ -4,8 +4,8 @@ spring:
 
   datasource:
     url: jdbc:mysql://localhost:3307/mediscan_db
-    username: mediscan_user
-    password: mediscan_pass_123
+    username: your_mysql_user
+    password: your_mysql_password
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -21,13 +21,13 @@ spring:
 
   data:
     mongodb:
-      uri: mongodb://mongo_admin:mongo_secret_123@localhost:27017/mediscan_docs?authSource=admin
+      uri: mongodb://your_mongo_user:your_mongo_password@localhost:27017/mediscan_docs?authSource=admin
       database: mediscan_docs
       auto-index-creation: false
     redis:
       host: localhost
       port: 6379
-      password: redis_secret_123
+      password: your_redis_password
 
   servlet:
     multipart:
@@ -40,8 +40,13 @@ server:
 
 app:
   jwt:
-    secret: mediscan-super-secret-jwt-key-2024-vit-vellore-project
+    secret: your-jwt-secret-key-min-32-characters-long
     expiration-ms: 3600000
+  minio:
+    endpoint: http://localhost:9000
+    access-key: your_minio_access_key
+    secret-key: your_minio_secret_key
+    bucket-reports: mediscan-reports
 
 logging:
   level:
