@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pdfplumber
+python-multipart
+pymongo
+motor
+openai
+python-dotenv
+langchain
+langchain-openai
+langchain-groq
+langchain-community
+groq
