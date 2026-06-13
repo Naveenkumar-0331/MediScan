@@ -1,5 +1,6 @@
 package com.mediscan.mediscan_ai.service;
 
+import com.mediscan.mediscan_ai.dto.response.AiAnalysisResponse;
 import com.mediscan.mediscan_ai.dto.response.ReportResponse;
 import com.mediscan.mediscan_ai.entity.mysql.Report;
 import com.mediscan.mediscan_ai.repository.mysql.ReportRepository;
@@ -15,6 +16,7 @@ import java.util.List;
 public class ReportService {
     private final ReportRepository reportRepository;
     private final MinioService minioService;
+    private final AiServiceClient aiServiceClient;
 
     public ReportResponse uploadReport(
             MultipartFile file,
@@ -49,6 +51,21 @@ public class ReportService {
                 .status(Report.ReportStatus.PENDING)
                 .build();
         Report saved=reportRepository.save(report);
+
+        // Call Python AI service
+        try {
+            AiAnalysisResponse aiResponse = aiServiceClient
+                    .analyzeReport(file, saved.getId(), patientId);
+
+            // Update report with AI results
+            saved.setMongoDocId(aiResponse.getMongoDocId());
+            saved.setStatus(Report.ReportStatus.DONE);
+            reportRepository.save(saved);
+        } catch (Exception e) {
+            // AI failed but upload succeeded — keep PENDING
+            saved.setStatus(Report.ReportStatus.FAILED);
+            reportRepository.save(saved);
+        }
 
         return ReportResponse.builder()
                 .reportId(saved.getId())

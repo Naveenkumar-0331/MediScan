@@ -47,7 +47,8 @@ app:
     access-key: your_minio_access_key
     secret-key: your_minio_secret_key
     bucket-reports: mediscan-reports
-
+  ai-service:
+      url: http://localhost:8000
 logging:
   level:
     com.mediscan: DEBUG
