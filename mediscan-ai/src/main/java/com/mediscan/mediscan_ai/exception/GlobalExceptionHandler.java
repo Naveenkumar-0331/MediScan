@@ -60,6 +60,17 @@ public class GlobalExceptionHandler {
                 "message", "Max file size: 10MB, max request size: 15MB"
         ));
     }
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(
+            ResourceNotFoundException ex) {
+        log.warn("Resource not found: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "timestamp", LocalDateTime.now().toString(),
+                "status", 404,
+                "error", "Not Found",
+                "message", ex.getMessage()
+        ));
+    }
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntime(RuntimeException ex) {

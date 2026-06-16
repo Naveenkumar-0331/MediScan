@@ -4,6 +4,7 @@ import com.mediscan.mediscan_ai.dto.response.ReportResponse;
 import com.mediscan.mediscan_ai.entity.mongodb.AiSummary;
 import com.mediscan.mediscan_ai.entity.mysql.Report;
 import com.mediscan.mediscan_ai.entity.mysql.User;
+import com.mediscan.mediscan_ai.exception.ResourceNotFoundException;
 import com.mediscan.mediscan_ai.repository.mongodb.AiSummaryRepository;
 import com.mediscan.mediscan_ai.repository.mysql.ReportRepository;
 import com.mediscan.mediscan_ai.repository.mysql.UserRepository;
@@ -33,6 +34,7 @@ public class ReportController {
     private final AuditLogService auditLogService;
     private final ReportRepository reportRepository;
     private final AiSummaryRepository aiSummaryRepository;
+
 
     private final S3Client s3Client;
 
@@ -83,13 +85,13 @@ public class ReportController {
         // Find report in MySQL
         Report report = reportRepository.findById(id)
                 .orElseThrow(() ->
-                        new RuntimeException("Report not found"));
+                        new ResourceNotFoundException("Report not found"));
 
         // Find AI summary in MongoDB using mongoDocId
         AiSummary summary = aiSummaryRepository
                 .findById(report.getMongoDocId())
                 .orElseThrow(() ->
-                        new RuntimeException("Summary not found"));
+                        new ResourceNotFoundException("Summary not found"));
 
         // Log the access
         auditLogService.log(
@@ -154,7 +156,7 @@ public class ReportController {
         // Find report in MySQL
         Report report = reportRepository.findById(id)
                 .orElseThrow(() ->
-                        new RuntimeException("Report not found"));
+                        new ResourceNotFoundException("Report not found"));
 
         s3Client.deleteObject(b -> b.bucket(bucketName).key(report.getS3Key()));
 
@@ -172,5 +174,6 @@ public class ReportController {
         );
 
         return ResponseEntity.noContent().build();
+
     }
 }
