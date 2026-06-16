@@ -11,12 +11,16 @@ import com.mediscan.mediscan_ai.service.AuditLogService;
 import com.mediscan.mediscan_ai.service.ReportService;
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import jakarta.servlet.http.HttpServletRequest;
+import software.amazon.awssdk.services.s3.S3Client;
+
 import java.io.IOException;
+import java.util.List;
 
 
 @RestController
@@ -29,6 +33,11 @@ public class ReportController {
     private final AuditLogService auditLogService;
     private final ReportRepository reportRepository;
     private final AiSummaryRepository aiSummaryRepository;
+
+    private final S3Client s3Client;
+
+    @Value("${app.minio.bucket-reports}")
+    private String bucketName;
 
     @PostMapping("/upload")
             public ResponseEntity<ReportResponse>uploadReport(
@@ -97,4 +106,71 @@ public class ReportController {
         return ResponseEntity.ok(summary);
     }
 
+    @GetMapping("/patients/{patientId}")
+    public ResponseEntity<List<ReportResponse>> getPatientReports(
+            @PathVariable Long patientId,
+            HttpServletRequest request
+    ){
+        String email=SecurityContextHolder.getContext().getAuthentication().getName();
+
+        User doctor = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+
+        List<Report> reports=reportRepository.findByPatientId(patientId);
+        List<ReportResponse> responseList=reports.stream()
+                .map(r->ReportResponse.builder()
+                        .reportId(r.getId())
+                        .fileName(r.getFileName())
+                        .patientId(r.getPatientId())
+                        .uploadedBy(r.getUploadedBy())
+                        .reportType(r.getReportType().toString())
+                        .status(r.getStatus().toString())
+                        .uploadedAt(r.getUpdatedAt())
+                        .message("Report retrieved")
+                        .build()).toList();
+
+        auditLogService.log(
+                doctor.getId(),
+                doctor.getEmail(),
+                "PATIENT_REPORT_VIEW",
+                "PATIENT",
+                patientId.toString(),
+                request.getRemoteAddr(),true,
+                "Listed reports for patient: "+patientId
+        );
+
+        return ResponseEntity.ok(responseList) ;
+    }
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteReport(
+            @PathVariable Long id,
+            HttpServletRequest request)
+    {
+        String email=SecurityContextHolder.getContext().getAuthentication().getName();
+
+        User doctor = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+
+        // Find report in MySQL
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() ->
+                        new RuntimeException("Report not found"));
+
+        s3Client.deleteObject(b -> b.bucket(bucketName).key(report.getS3Key()));
+
+        aiSummaryRepository.deleteById(report.getMongoDocId());
+        reportRepository.deleteById(id);
+
+        auditLogService.log(
+                doctor.getId(),
+                doctor.getEmail(),
+                "REPORT_DELETE",
+                "REPORT",
+                id.toString(),
+                request.getRemoteAddr(),true,
+                "Deleted Report: "+id
+        );
+
+        return ResponseEntity.noContent().build();
+    }
 }

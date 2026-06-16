@@ -54,6 +54,9 @@ public class Report {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    public <__TMP__> __TMP__ getR() {
+    }
+
     public enum ReportType{
         LAB, XRAY , MRI, PRESCRIPTION , OTHER
     }
